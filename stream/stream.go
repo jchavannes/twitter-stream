@@ -34,6 +34,7 @@ type (
 		httpClient    httpclient.IHttpClient
 		done          chan struct{}
 		reader        IStreamResponseBodyReader
+		res           *http.Response
 	}
 )
 
@@ -65,6 +66,15 @@ func (s *Stream) GetMessages() <-chan StreamMessage {
 // StopStream sends a close signal to stop the stream of tweets.
 func (s *Stream) StopStream() {
 	close(s.done)
+	s.CloseBody()
+}
+
+func (s *Stream) CloseBody() {
+	if s.res != nil {
+		body := s.res.Body
+		s.res = nil
+		body.Close()
+	}
 }
 
 // StartStream makes an HTTP GET request to twitter and starts streaming tweets to the Messages channel.
@@ -73,6 +83,8 @@ func (s *Stream) StopStream() {
 // See an example here: https://developer.twitter.com/en/docs/twitter-api/expansions.
 func (s *Stream) StartStream(optionalQueryParams *url.Values) error {
 	res, err := s.httpClient.GetSearchStream(optionalQueryParams)
+
+	s.res = res
 
 	if err != nil {
 		return err
@@ -86,7 +98,7 @@ func (s *Stream) StartStream(optionalQueryParams *url.Values) error {
 }
 
 func (s *Stream) streamMessages(res *http.Response) {
-	defer res.Body.Close()
+	defer s.CloseBody()
 	defer close(s.messages)
 
 	for !stopped(s.done) {
@@ -96,7 +108,6 @@ func (s *Stream) streamMessages(res *http.Response) {
 				Data: nil,
 				Err:  err,
 			}
-			s.StopStream()
 			break
 		}
 		if len(b) == 0 {
